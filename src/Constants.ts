@@ -13,7 +13,7 @@ import {
   celo,
   swellchain,
 } from "viem/chains";
-import { createPublicClient, http, PublicClient } from "viem";
+import { createPublicClient, defineChain, http, PublicClient } from "viem";
 
 import PriceConnectors from "./constants/price_connectors.json";
 
@@ -469,6 +469,57 @@ const SWELL_CONSTANTS: chainConstants = {
   }) as PublicClient,
 };
 
+// Constants for Hyperliquid
+export const hyperliquid = defineChain({
+  id: 645749,
+  name: "Hyperliquid",
+  nativeCurrency: { name: "Hype", symbol: "HYPE", decimals: 18 },
+  rpcUrls: {
+    default: {
+      http: ["https://hyperliquid.rpc.hypersync.xyz"],
+    },
+  },
+  blockExplorers: {
+    default: {
+      name: "Hyperliquid Explorer",
+      url: "https://www.hyperscan.com",
+    },
+  },
+  contracts: {
+    multicall3: {
+      address: '0xcA11bde05977b3631167028862bE2a173976CA11',
+      blockCreated: 13051
+    }
+  }
+})
+
+const HYPERLIQUID_CONSTANTS: chainConstants = {
+  weth: "0x5555555555555555555555555555555555555555", // wHYPE
+  usdc: "0x5d3a1Ff2b6BAb83b63cd9AD0787074081a52ef34", // todo
+  oracle: { // todo
+    getType: (blockNumber: number) => {
+      return PriceOracleType.V3;
+    },
+    getAddress: (priceOracleType: PriceOracleType) => {
+      return "0xe58920a8c684CD3d6dCaC2a41b12998e4CB17EfE";
+    },
+    startBlock: 3733759,
+    updateDelta: 60 * 60, // 1 hour
+    priceConnectors: SWELL_PRICE_CONNECTORS,
+  },
+  rewardToken: (blockNumber: number) => "0x7f9AdFbd38b669F03d1d11000Bc76b9AaEA28A81", // todo
+  eth_client: createPublicClient({
+    chain: hyperliquid,
+    transport: http(
+      process.env.ENVIO_HYPERLIQUID_RPC_URL || "http://52.69.115.90:3001/evm",
+      {
+        retryCount: 10,
+        retryDelay: 1000,
+      }
+    ),
+  }) as PublicClient,
+};
+
 /**
  * Create a unique ID for a token on a specific chain. Really should only be used for Token Entities.
  * @param address
@@ -505,6 +556,7 @@ export const CHAIN_CONSTANTS: Record<number, chainConstants> = {
   130: UNICHAIN_CONSTANTS,
   42220: CELO_CONSTANTS,
   1923: SWELL_CONSTANTS,
+  645749: HYPERLIQUID_CONSTANTS
 };
 
 export const CacheCategory = {
