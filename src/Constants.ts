@@ -14,8 +14,10 @@ import {
   swellchain,
 } from "viem/chains";
 import { createPublicClient, defineChain, http, PublicClient } from "viem";
-
 import PriceConnectors from "./constants/price_connectors.json";
+import { BigNumber } from "bignumber.js";
+
+export const ZERO_BN = new BigNumber(0);
 
 dotenv.config();
 
@@ -26,6 +28,15 @@ export const TEN_TO_THE_18_BI = BigInt(10 ** 18);
 export const SECONDS_IN_AN_HOUR = BigInt(3600);
 export const SECONDS_IN_A_DAY = BigInt(86400);
 export const SECONDS_IN_A_WEEK = BigInt(604800);
+
+export const ZERO_BI = BigInt(0)
+export const ONE_BI = BigInt(1)
+export const ZERO_BD = BigNumber('0')
+export const ONE_BD = BigNumber('1')
+export const BI_18 = BigInt(18)
+
+export const ADDRESS_ZERO = "0x0000000000000000000000000000000000000000";
+
 
 type PriceConnector = {
   address: string;
@@ -78,6 +89,7 @@ export enum PriceOracleType {
 type chainConstants = {
   weth: string;
   usdc: string;
+  stablePool?: string;
   oracle: {
     getType: (blockNumber: number) => PriceOracleType;
     getAddress: (priceOracleType: PriceOracleType) => string;
@@ -495,7 +507,8 @@ export const hyperliquid = defineChain({
 
 const HYPERLIQUID_CONSTANTS: chainConstants = {
   weth: "0x5555555555555555555555555555555555555555", // wHYPE
-  usdc: "0x5d3a1Ff2b6BAb83b63cd9AD0787074081a52ef34", // todo
+  usdc: "0xca79db4b49f608ef54a5cb813fbed3a6387bc645", // USDXL
+  stablePool: "0x5Ad00c0fb20046448d924F7a674C9F25CaE8bBCb", // wHYPE/USDXL
   oracle: { // todo
     getType: (blockNumber: number) => {
       return PriceOracleType.V3;
@@ -527,7 +540,7 @@ const HYPERLIQUID_CONSTANTS: chainConstants = {
  * @returns string Merged Token ID.
  */
 export const TokenIdByChain = (address: string, chainId: number) =>
-  `${toChecksumAddress(address)}-${chainId}`;
+  `${toChecksumAddress(address)}`;
 
 /**
  * Create a unique ID for a token on a specific chain at a specific block. Really should only be used

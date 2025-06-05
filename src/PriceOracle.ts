@@ -4,10 +4,12 @@ import {
   CacheCategory,
   toChecksumAddress,
   TokenIdByBlock,
+  ZERO_BI,
 } from "./Constants";
-import { Token, TokenPriceSnapshot } from "./src/Types.gen";
+import { Token, TokenPriceSnapshot, LiquidityPoolAggregator } from "./src/Types.gen";
 import { Cache } from "./cache";
 import { createHash } from "crypto";
+import { handlerContext } from "generated/src/Types.gen";
 import { getErc20TokenDetails } from "./Erc20";
 import PriceOracleABI from "../abis/VeloPriceOracleABI.json";
 import SpotPriceAggregatorABI from "../abis/SpotPriceAggregator.json";
@@ -36,6 +38,32 @@ export async function createTokenEntity(
     pricePerUSDNew: BigInt(0),
     lastUpdatedTimestamp: blockDatetime,
     isWhitelisted: false,
+
+    // Total supply - ensure it's always a valid string
+    totalSupply: BigInt(tokenDetails.totalSupply || 0n),
+    // Volume metrics
+    volume: 0n,
+    volumeUSD: 0n,
+    untrackedVolumeUSD: 0n,
+    feesUSD: 0n,
+    // Transaction counts
+    txCount: 0n,
+    buyCount: 0n,
+    sellCount: 0n,
+    // Pool participation
+    poolCount: 0n,
+    // Liquidity metrics
+    totalValueLocked: 0n,
+    totalValueLockedUSD: 0n,
+    totalValueLockedUSDUntracked: 0n,
+    derivedETH: 0n,
+    // Archive helpers for minute data
+    lastOneMinuteArchived: 0n,
+    lastFiveMinuteArchived: 0n,
+    oneMinuteArray: [],
+    fiveMinuteArray: [],
+    lastOneMinuteRecorded: 0n,
+    lastFiveMinuteRecorded: 0n,
   };
 
   context.Token.set(tokenEntity);
@@ -248,3 +276,30 @@ export async function read_prices(
     return { pricePerUSDNew: BigInt(result[0]), priceOracleType };
   }
 }
+
+
+export async function getPriceOfETHInUSD(chainId: number, context: handlerContext, decimals: bigint): Promise<TokenPriceData> {
+  const REFERENCE_TOKEN = CHAIN_CONSTANTS[chainId].weth;
+  const STABLE_POOL = CHAIN_CONSTANTS[chainId].stablePool;
+
+  const usdcPool = await context.LiquidityPoolAggregator.get(STABLE_POOL!)
+  if (usdcPool) {
+    if (usdcPool.token0_id == toChecksumAddress(REFERENCE_TOKEN)) return {
+      pricePerUSDNew: usdcPool.token1Price,
+      decimals
+    }
+    else return {
+      pricePerUSDNew: usdcPool.token0Price,
+      decimals
+    }
+  } else {
+    return {
+      pricePerUSDNew: ZERO_BI,
+      decimals
+    }
+  }
+}
+
+// export async function getPriceOfTokenInETH(tokenAddress: string, chainId: number, context: handlerContext, decimals: bigint): Promise<TokenPriceData> {
+
+// }
