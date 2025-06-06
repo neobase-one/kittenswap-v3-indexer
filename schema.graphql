@@ -25,8 +25,8 @@ type LiquidityPoolAggregator @entity {
   totalFeesUSD: BigInt! @config(precision: 76) # total fees collected in USD
   totalFeesUSDWhitelisted: BigInt! @config(precision: 76) # total fees collected in USD
   numberOfSwaps: BigInt! @config(precision: 76) # total number of swaps in the pool
-  token0Price: BigInt! @config(precision: 76) # price of token0 relative to token1
-  token1Price: BigInt! @config(precision: 76) # price of token1 relative to token0
+  token0Price: BigDecimal! # @config(precision: 76) # price of token0 relative to token1
+  token1Price: BigDecimal! # @config(precision: 76) # price of token1 relative to token0
   totalVotesDeposited: BigInt! @config(precision: 76) # total votes for the pool
   totalVotesDepositedUSD: BigInt! @config(precision: 76) # total votes for the pool in USD
   totalEmissions: BigInt! @config(precision: 76) # total emissions for the pool in reward token units (VELO form Optimism and AERO for Base)
@@ -188,7 +188,8 @@ type Token @entity {
   totalValueLocked: BigInt! @config(precision: 76)
   totalValueLockedUSD: BigInt! @config(precision: 76)
   totalValueLockedUSDUntracked: BigInt! @config(precision: 76)
-  derivedETH: BigInt! @config(precision: 76)
+  derivedETH: BigDecimal! # @config(precision: 76)
+  whitelistPools: [String!]! # Changed from Pool reference to String for simplicity
 
   # Archive helpers for one minute data
   lastOneMinuteArchived: BigInt!
@@ -214,7 +215,7 @@ type Token @entity {
 type Bundle @entity {
   id: ID!
   # price of ETH in usd
-  ethPriceUSD: BigInt! @config(precision: 76)
+  ethPriceUSD: BigDecimal! # @config(precision: 76)
 }
 
 # Snapshot of the Token entity
@@ -579,6 +580,7 @@ type CLPool_Burn {
   amount: BigInt! @config(precision: 76)
   amount0: BigInt! @config(precision: 76)
   amount1: BigInt! @config(precision: 76)
+  amountUSD: BigDecimal! # @config(precision: 76)
   sourceAddress: String! @index
   timestamp: Timestamp! @index
   # transactionHash: String!

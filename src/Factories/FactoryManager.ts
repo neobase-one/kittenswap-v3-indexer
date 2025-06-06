@@ -64,6 +64,19 @@ export async function updateFactoryOnPoolCreated(
   context.Factory.set(updatedFactory);
 }
 
+export async function updateFactory(
+  diff: any,
+  current: Factory,
+  context: handlerContext
+) {
+  const updated: Factory = {
+    ...current,
+    ...diff,
+  };
+
+  context.Factory.set(updated);
+}
+
 /**
  * Updates factory metrics when a swap occurs.
  * Updates volume, fees, TVL, and transaction counts.

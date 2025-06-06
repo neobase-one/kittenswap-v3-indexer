@@ -18,6 +18,12 @@ import { multiplyBase1e18, abs } from "../Maths";
 import { updateLiquidityPoolAggregator } from "../Aggregators/LiquidityPoolAggregator";
 import { handlerContext, CLPool_Swap_event } from "generated/src/Types.gen";
 import { fetchPoolLoaderData } from "../Pools/common";
+import { getNativePriceInUSD, sqrtPriceX96ToTokenPrices, findNativePerToken } from "../utils/pricing";
+import { CHAIN_CONSTANTS, ONE_BI } from "../Constants";
+import { toBigInt, toDecimal } from "../PriceOracle";
+import { updateFactory } from "../Factories/FactoryManager";
+import { BigDecimal } from "generated";
+import { convertTokenToDecimal } from "../utils";
 
 /**
  * Updates the fee-related metrics for a Concentrated Liquidity Pool.
@@ -138,12 +144,12 @@ function updateCLPoolLiquidity(
 
     tokenUpdateData.addTotalLiquidity0USD = multiplyBase1e18(
       normalizedReserveAdd0,
-      liquidityPoolAggregator.token0Price
+      toBigInt(liquidityPoolAggregator.token0Price)
     );
 
     tokenUpdateData.subTotalLiquidity0USD = multiplyBase1e18(
       normalizedReserveSub0,
-      liquidityPoolAggregator.token0Price
+      toBigInt(liquidityPoolAggregator.token0Price)
     );
   }
 
@@ -159,12 +165,12 @@ function updateCLPoolLiquidity(
 
     tokenUpdateData.addTotalLiquidity1USD = multiplyBase1e18(
       normalizedReserveAdd1,
-      liquidityPoolAggregator.token1Price
+      toBigInt(liquidityPoolAggregator.token1Price)
     );
 
     tokenUpdateData.subTotalLiquidity1USD = multiplyBase1e18(
       normalizedReserveSub1,
-      liquidityPoolAggregator.token1Price
+      toBigInt(liquidityPoolAggregator.token1Price)
     );
   }
 
@@ -176,9 +182,15 @@ function updateCLPoolLiquidity(
 
 CLPool.Burn.handlerWithLoader({
   loader: async ({ event, context }) => {
-    return fetchPoolLoaderData(event.srcAddress, context, event.chainId);
+    const poolLoaderReturn = await fetchPoolLoaderData(event.srcAddress, context, event.chainId);
+    const factory = await context.Factory.get(event.srcAddress);
+    const bundle = await context.Bundle.get(event.chainId.toString());
+
+    return { poolLoaderReturn, factory, bundle };
   },
   handler: async ({ event, context, loaderReturn }) => {
+    const { poolLoaderReturn, factory, bundle } = loaderReturn;
+
     const entity: CLPool_Burn = {
       id: `${event.transaction.hash}#${event.logIndex}`,
       owner: event.params.owner,
@@ -187,27 +199,90 @@ CLPool.Burn.handlerWithLoader({
       amount: event.params.amount,
       amount0: event.params.amount0,
       amount1: event.params.amount1,
+      amountUSD: new BigDecimal(0),
       sourceAddress: event.srcAddress,
       timestamp: new Date(event.block.timestamp * 1000),
-    //   blockNumber: event.block.number,
+      //   blockNumber: event.block.number,
       logIndex: event.logIndex,
-    //   chainId: event.chainId,
-    //   transactionHash: event.transaction.hash,
+      //   chainId: event.chainId,
+      //   transactionHash: event.transaction.hash,
       pool_id: event.srcAddress,
-      token0_id: loaderReturn._type === "success" ? loaderReturn.liquidityPoolAggregator.token0_id : "",
-      token1_id: loaderReturn._type === "success" ? loaderReturn.liquidityPoolAggregator.token1_id : "",
+      token0_id: poolLoaderReturn._type === "success" ? poolLoaderReturn.liquidityPoolAggregator.token0_id : "",
+      token1_id: poolLoaderReturn._type === "success" ? poolLoaderReturn.liquidityPoolAggregator.token1_id : "",
       transaction_id: event.transaction.hash,
     };
 
-    context.CLPool_Burn.set(entity);
+    if (!bundle) {
+      return context.log.info(`Bundle not found for chain ${event.chainId}`);
+    }
+
+    if (!factory) {
+      return context.log.info(`Factory not found for chain ${event.chainId}`);
+    }
+
+    switch (poolLoaderReturn._type) {
+      case "success":
+        const { liquidityPoolAggregator, token0Instance, token1Instance } = poolLoaderReturn;
+        const amount0 = convertTokenToDecimal(
+          event.params.amount0,
+          token0Instance.decimals
+        );
+        const amount1 = convertTokenToDecimal(
+          event.params.amount1,
+          token1Instance.decimals
+        );
+
+        const amountUSD = amount0
+          .times(token0Instance.derivedETH.times(bundle.ethPriceUSD))
+          .plus(amount1.times(token1Instance.derivedETH.times(bundle.ethPriceUSD)));
+
+        const updatedEntity = {
+          ...entity,
+          amountUSD: amountUSD,
+        };
+
+        const updatedToken0Instance = {
+          ...token0Instance,
+          txCount: token0Instance.txCount + ONE_BI,
+        };
+
+        const updatedToken1Instance = {
+          ...token1Instance,
+          txCount: token1Instance.txCount + ONE_BI,
+        };
+
+        let updatedLiquidityPoolAggregator = {
+          ...liquidityPoolAggregator,
+          txCount: liquidityPoolAggregator.txCount + ONE_BI,
+        };
+
+        const updatedFactory = {
+          ...factory,
+          txCount: factory.txCount + 1n
+        };
+
+        // Save Changes
+        context.Token.set(updatedToken0Instance);
+        context.Token.set(updatedToken1Instance);
+        context.LiquidityPoolAggregator.set(updatedLiquidityPoolAggregator);
+        context.Factory.set(updatedFactory);
+        context.CLPool_Burn.set(updatedEntity);
+        return;
+      case "TokenNotFoundError":
+        context.log.error(poolLoaderReturn.message);
+        return;
+    }
   },
 });
 
 CLPool.Collect.handlerWithLoader({
   loader: async ({ event, context }) => {
-    return fetchPoolLoaderData(event.srcAddress, context, event.chainId);
+    const poolLoaderReturn = await fetchPoolLoaderData(event.srcAddress, context, event.chainId);
+    const factory = await context.Factory.get(event.srcAddress);
+    return { poolLoaderReturn, factory };
   },
   handler: async ({ event, context, loaderReturn }) => {
+    const { poolLoaderReturn, factory } = loaderReturn;
     const entity: CLPool_Collect = {
       id: `${event.transaction.hash}#${event.logIndex}`,
       owner: event.params.owner,
@@ -228,9 +303,9 @@ CLPool.Collect.handlerWithLoader({
 
     context.CLPool_Collect.set(entity);
 
-    switch (loaderReturn._type) {
+    switch (poolLoaderReturn._type) {
       case "success":
-        const { liquidityPoolAggregator, token0Instance, token1Instance } = loaderReturn;
+        const { liquidityPoolAggregator, token0Instance, token1Instance } = poolLoaderReturn;
         const tokenUpdateData = updateCLPoolLiquidity(
           liquidityPoolAggregator,
           event,
@@ -252,15 +327,35 @@ CLPool.Collect.handlerWithLoader({
           context,
           event.block.number
         );
+          // Get formatted amounts collected.
+        const collectedAmountToken0 = convertTokenToDecimal(
+          event.params.amount0,
+          token0Instance.decimals
+        );
+        const collectedAmountToken1 = convertTokenToDecimal(
+          event.params.amount1,
+          token1Instance.decimals
+        );
+
+        if (factory) {
+          updateFactory(
+            {
+              totalValueLockedETH: factory.totalValueLockedETH.minus(poolLoaderReturn.liquidityPoolAggregator.totalValueLockedETH),
+              txCount: factory.txCount + 1n
+            },
+            factory,
+            context
+          );
+        }
         return
       case "TokenNotFoundError":
-        context.log.error(loaderReturn.message);
+        context.log.error(poolLoaderReturn.message);
         return;
       case "LiquidityPoolAggregatorNotFoundError":
-        context.log.error(loaderReturn.message);
+        context.log.error(poolLoaderReturn.message);
         return;
       default:
-        const _exhaustiveCheck: never = loaderReturn;
+        const _exhaustiveCheck: never = poolLoaderReturn;
         return _exhaustiveCheck;
     }
   },
@@ -398,9 +493,13 @@ CLPool.Initialize.handlerWithLoader({
   switch (loaderReturn._type) {
     case "success":
       const { liquidityPoolAggregator, token0Instance, token1Instance } = loaderReturn;
+      const prices = sqrtPriceX96ToTokenPrices(event.params.sqrtPriceX96, token0Instance, token1Instance)
+
       const liquidityPoolDiff = {
         sqrtPrice: event.params.sqrtPriceX96,
         tick: event.params.tick,
+        token0Price: prices[0],
+        token1Price: prices[1],
         lastUpdatedTimestamp: new Date(event.block.timestamp * 1000),
       }
 
@@ -411,6 +510,58 @@ CLPool.Initialize.handlerWithLoader({
         context,
         event.block.number
       );
+
+      let bundle = await context.Bundle.get(event.chainId.toString());
+      const ethPrice = await getNativePriceInUSD(context, CHAIN_CONSTANTS[event.chainId].stablePool!, false)
+
+      if (bundle) {
+        const newBundle = {
+          ...bundle,
+          ethPriceUSD: ethPrice
+        }
+        context.Bundle.set(newBundle);
+      }
+
+      const wrappedNativeAddress = CHAIN_CONSTANTS[event.chainId].weth;
+      const stablecoinAddresses = [CHAIN_CONSTANTS[event.chainId].usdc];
+      const minimumNativeLocked = CHAIN_CONSTANTS[event.chainId].minimumNativeLocked;
+
+      bundle = await context.Bundle.get(event.chainId.toString());
+
+      let [token0DerivedEth, token1DerivedEth] = await Promise.all([
+        findNativePerToken(
+          token0Instance,
+          wrappedNativeAddress,
+          stablecoinAddresses,
+          minimumNativeLocked!,
+          bundle!,
+          event.chainId,
+          context
+        ),
+        findNativePerToken(
+          token1Instance,
+          wrappedNativeAddress,
+          stablecoinAddresses,
+          minimumNativeLocked!,
+          bundle!,
+          event.chainId,
+          context
+        ),
+      ]);
+  
+      let newToken0Instance = {
+        ...token0Instance,
+        derivedETH: token0DerivedEth,
+      };
+  
+      let newToken1Instance = {
+        ...token1Instance,
+        derivedETH: token1DerivedEth,
+      };
+  
+      context.Token.set(newToken0Instance);
+      context.Token.set(newToken1Instance);
+ 
       return;
       case "TokenNotFoundError":
         context.log.error(loaderReturn.message);
@@ -552,7 +703,7 @@ const updateToken0SwapData = async (data: SwapEntityData, event: CLPool_Swap_eve
   liquidityPoolAggregatorDiff = {
     ...liquidityPoolAggregatorDiff,
     token0Price:
-      token0Instance?.pricePerUSDNew ?? liquidityPoolAggregator.token0Price,
+      toDecimal(token0Instance?.pricePerUSDNew ?? liquidityPoolAggregator.token0Price),
     token0IsWhitelisted: token0Instance?.isWhitelisted ?? false,
   };
 
@@ -591,7 +742,7 @@ const updateToken1SwapData = async (data: SwapEntityData, event: CLPool_Swap_eve
     totalVolume1:
       liquidityPoolAggregator.totalVolume1 + tokenUpdateData.netAmount1,
     token1Price:
-      token1Instance?.pricePerUSDNew ?? liquidityPoolAggregator.token1Price,
+      toDecimal(token1Instance?.pricePerUSDNew ?? liquidityPoolAggregator.token1Price),
     token1IsWhitelisted: token1Instance?.isWhitelisted ?? false,
   };
 
@@ -686,6 +837,37 @@ CLPool.Swap.handlerWithLoader({
           context,
           event.block.number
         );
+
+        const { liquidityPoolAggregator, token0Instance, token1Instance } = loaderReturn;
+
+        const prices = sqrtPriceX96ToTokenPrices(event.params.sqrtPriceX96, token0Instance, token1Instance)
+
+        const liquidityPoolDiff = {
+          sqrtPrice: event.params.sqrtPriceX96,
+          tick: event.params.tick,
+          token0Price: prices[0],
+          token1Price: prices[1],
+          lastUpdatedTimestamp: new Date(event.block.timestamp * 1000),
+        }
+
+        updateLiquidityPoolAggregator(
+          liquidityPoolDiff,
+          liquidityPoolAggregator,
+          liquidityPoolDiff.lastUpdatedTimestamp,
+          context,
+          event.block.number
+        );
+
+        const bundle = await context.Bundle.get(event.chainId.toString());
+        const ethPrice = await getNativePriceInUSD(context, CHAIN_CONSTANTS[event.chainId].stablePool!, false)
+
+        if (bundle) {
+          const newBundle = {
+            ...bundle,
+            ethPriceUSD: ethPrice
+          }
+          context.Bundle.set(newBundle);
+        }
         return;
       case "TokenNotFoundError":
         context.log.error(loaderReturn.message);

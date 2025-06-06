@@ -16,6 +16,7 @@ import {
 import { createPublicClient, defineChain, http, PublicClient } from "viem";
 import PriceConnectors from "./constants/price_connectors.json";
 import { BigNumber } from "bignumber.js";
+import { BigDecimal } from "generated";
 
 export const ZERO_BN = new BigNumber(0);
 
@@ -24,6 +25,7 @@ dotenv.config();
 export const TEN_TO_THE_3_BI = BigInt(10 ** 3);
 export const TEN_TO_THE_6_BI = BigInt(10 ** 6);
 export const TEN_TO_THE_18_BI = BigInt(10 ** 18);
+export const TEN_TO_THE_18_BD = new BigDecimal(10 ** 18);
 
 export const SECONDS_IN_AN_HOUR = BigInt(3600);
 export const SECONDS_IN_A_DAY = BigInt(86400);
@@ -90,6 +92,12 @@ type chainConstants = {
   weth: string;
   usdc: string;
   stablePool?: string;
+  nativeTokenDetails?: {
+    symbol: string;
+    name: string;
+    decimals: bigint;
+  };
+  minimumNativeLocked?: BigDecimal;
   oracle: {
     getType: (blockNumber: number) => PriceOracleType;
     getAddress: (priceOracleType: PriceOracleType) => string;
@@ -509,6 +517,12 @@ const HYPERLIQUID_CONSTANTS: chainConstants = {
   weth: "0x5555555555555555555555555555555555555555", // wHYPE
   usdc: "0xca79db4b49f608ef54a5cb813fbed3a6387bc645", // USDXL
   stablePool: "0x5Ad00c0fb20046448d924F7a674C9F25CaE8bBCb", // wHYPE/USDXL
+  nativeTokenDetails: {
+    symbol: "HYPE",
+    name: "HYPE",
+    decimals: BigInt(18),
+  },
+  minimumNativeLocked: BigDecimal("1"),
   oracle: { // todo
     getType: (blockNumber: number) => {
       return PriceOracleType.V3;

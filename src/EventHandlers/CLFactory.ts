@@ -7,11 +7,12 @@ import {
 } from "generated";
 import { updateLiquidityPoolAggregator } from "../Aggregators/LiquidityPoolAggregator";
 import { TokenEntityMapping } from "../CustomTypes";
-import { TokenIdByChain, ZERO_BD } from "../Constants";
+import { CHAIN_CONSTANTS, TokenIdByChain, ZERO_BD, ZERO_BI } from "../Constants";
 import { generatePoolName } from "../Helpers";
-import { createTokenEntity, getPriceOfETHInUSD } from "../PriceOracle";
+import { createTokenEntity } from "../PriceOracle";
 import { ZERO_BN } from "../Constants";
 import { updateFactoryOnPoolCreated } from "../Factories/FactoryManager";
+import { getNativePriceInUSD } from "../utils/pricing";
 
 CLFactory.PoolCreated.contractRegister(({ event, context }) => {
   context.addCLPool(event.params.pool);
@@ -71,10 +72,10 @@ CLFactory.PoolCreated.handlerWithLoader({
       }
     }
 
-    const ethPrice = await getPriceOfETHInUSD(event.chainId, context, BigInt(18));
+    const ethPrice = await getNativePriceInUSD(context, CHAIN_CONSTANTS[event.chainId].stablePool!, false);
     const bundle: Bundle = {
       id: event.chainId.toString(),
-      ethPriceUSD: ethPrice.pricePerUSDNew,
+      ethPriceUSD: ethPrice,
     };
     context.Bundle.set(bundle);
 
@@ -113,8 +114,8 @@ CLFactory.PoolCreated.handlerWithLoader({
       totalFeesUSD: 0n,
       totalFeesUSDWhitelisted: 0n,
       numberOfSwaps: 0n,
-      token0Price: 0n,
-      token1Price: 0n,
+      token0Price: ZERO_BD,
+      token1Price: ZERO_BD,
       totalVotesDeposited: 0n,
       totalVotesDepositedUSD: 0n,
       totalEmissions: 0n,
