@@ -3,12 +3,16 @@ import {
   CLFactory_PoolCreated,
   LiquidityPoolAggregator,
   Token,
+  Bundle,
 } from "generated";
 import { updateLiquidityPoolAggregator } from "../Aggregators/LiquidityPoolAggregator";
 import { TokenEntityMapping } from "../CustomTypes";
-import { TokenIdByChain } from "../Constants";
+import { CHAIN_CONSTANTS, TokenIdByChain, ZERO_BD, ZERO_BI } from "../Constants";
 import { generatePoolName } from "../Helpers";
 import { createTokenEntity } from "../PriceOracle";
+import { ZERO_BN } from "../Constants";
+import { updateFactoryOnPoolCreated } from "../Factories/FactoryManager";
+import { getNativePriceInUSD } from "../utils/pricing";
 
 CLFactory.PoolCreated.contractRegister(({ event, context }) => {
   context.addCLPool(event.params.pool);
@@ -68,6 +72,16 @@ CLFactory.PoolCreated.handlerWithLoader({
       }
     }
 
+    const ethPrice = await getNativePriceInUSD(context, CHAIN_CONSTANTS[event.chainId].stablePool!, false);
+    const bundle: Bundle = {
+      id: event.chainId.toString(),
+      ethPriceUSD: ethPrice,
+    };
+    context.Bundle.set(bundle);
+
+    const token0Id = TokenIdByChain(event.params.token0, event.chainId);
+    const token1Id = TokenIdByChain(event.params.token1, event.chainId);
+
     const aggregator: LiquidityPoolAggregator = {
       id: event.params.pool,
       chainId: event.chainId,
@@ -77,10 +91,13 @@ CLFactory.PoolCreated.handlerWithLoader({
         false, // Pool is not stable
         Number(event.params.tickSpacing) // Pool is CL
       ),
-      token0_id: TokenIdByChain(event.params.token0, event.chainId),
-      token1_id: TokenIdByChain(event.params.token1, event.chainId),
-      token0_address: event.params.token0,
-      token1_address: event.params.token1,
+      token0_id: token0Id,
+      token1_id: token1Id,
+      createdAtTimestamp: BigInt(event.block.timestamp),
+      createdAtBlockNumber: BigInt(event.block.number),
+      feeTier: BigInt(event.params.tickSpacing),
+      sqrtPrice: 0n,
+      tick: 0n,
       isStable: false,
       isCL: true,
       reserve0: 0n,
@@ -97,8 +114,8 @@ CLFactory.PoolCreated.handlerWithLoader({
       totalFeesUSD: 0n,
       totalFeesUSDWhitelisted: 0n,
       numberOfSwaps: 0n,
-      token0Price: 0n,
-      token1Price: 0n,
+      token0Price: ZERO_BD,
+      token1Price: ZERO_BD,
       totalVotesDeposited: 0n,
       totalVotesDepositedUSD: 0n,
       totalEmissions: 0n,
@@ -109,6 +126,23 @@ CLFactory.PoolCreated.handlerWithLoader({
       token1IsWhitelisted: poolToken1?.isWhitelisted ?? false,
       lastUpdatedTimestamp: new Date(event.block.timestamp * 1000),
       lastSnapshotTimestamp: new Date(event.block.timestamp * 1000),
+      // Required BigDecimal fields
+      untrackedVolumeUSD: ZERO_BN,
+      txCount: 0n,
+      buyCount: 0n,
+      sellCount: 0n,
+      totalValueLockedToken0: ZERO_BN,
+      totalValueLockedToken1: ZERO_BN,
+      totalValueLockedETH: ZERO_BN,
+      totalValueLockedUSD: ZERO_BN,
+      totalValueLockedUSDUntracked: ZERO_BN,
+      liquidityProviderCount: 0n,
+      lastOneMinuteArchived: 0n,
+      lastOneMinuteRecorded: 0n,
+      oneMinuteArray: [],
+      lastFiveMinuteArchived: 0n,
+      lastFiveMinuteRecorded: 0n,
+      fiveMinuteArray: [],
     };
 
     updateLiquidityPoolAggregator(
@@ -118,5 +152,8 @@ CLFactory.PoolCreated.handlerWithLoader({
       context,
       event.block.number
     );
+
+    // Update factory metrics using the new factory manager
+    await updateFactoryOnPoolCreated(event.srcAddress, context);
   },
 });

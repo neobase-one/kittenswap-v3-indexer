@@ -14,6 +14,7 @@ export async function getErc20TokenDetails(
   readonly name: string;
   readonly decimals: number;
   readonly symbol: string;
+  readonly totalSupply: string;
 }> {
   // console.log(
   //   `[getErc20TokenDetails] Starting for address: ${contractAddress}, chainId: ${chainId}`
@@ -30,6 +31,7 @@ export async function getErc20TokenDetails(
       decimals: Number(token.decimals),
       name: token.name,
       symbol: token.symbol,
+      totalSupply: token.totalSupply,
     };
   }
 
@@ -44,7 +46,7 @@ export async function getErc20TokenDetails(
       `[getErc20TokenDetails] Fetching token details for address: ${contractAddress}`
     );
 
-    const [nameResult, decimalsResult, symbolResult] = await Promise.all([
+    const [nameResult, decimalsResult, symbolResult, totalSupplyResult] = await Promise.all([
       ethClient.simulateContract({
         address: contractAddress as `0x${string}`,
         abi: contractABI,
@@ -63,20 +65,28 @@ export async function getErc20TokenDetails(
         functionName: 'symbol',
         args: [],
       }),
+      ethClient.simulateContract({
+        address: contractAddress as `0x${string}`,
+        abi: contractABI,
+        functionName: 'totalSupply',
+        args: [],
+      }),
     ]);
     
     const name = nameResult.result;
     const decimals = decimalsResult.result;
     const symbol = symbolResult.result;
+    const totalSupply = totalSupplyResult.result;
 
     console.log(
-      `[getErc20TokenDetails] Token details fetched: name=${name}, decimals=${decimals}, symbol=${symbol}`
+      `[getErc20TokenDetails] Token details fetched: name=${name}, decimals=${decimals}, symbol=${symbol}, totalSupply=${totalSupply}`
     );
 
     const entry = {
       decimals: Number(decimals) || 0,
       name: name?.toString() || "",
       symbol: symbol?.toString() || "",
+      totalSupply: totalSupply?.toString() || "0",
     } as const;
 
     cache.add({ [contractAddress.toLowerCase()]: entry as any });

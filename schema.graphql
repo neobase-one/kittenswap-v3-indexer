@@ -1,11 +1,14 @@
-type LiquidityPoolAggregator {
+type LiquidityPoolAggregator @entity {
   id: ID! # pool address
   chainId: Int! 
   name: String! # name of the pool
-  token0_id: String! # token0 id
-  token1_id: String! # token1 id
-  token0_address: String! # token0 address
-  token1_address: String! # token1 address
+  createdAtTimestamp: BigInt!
+  createdAtBlockNumber: BigInt!
+  token0: Token!
+  token1: Token!
+  feeTier: BigInt!
+  sqrtPrice: BigInt!
+  tick: BigInt
   isStable: Boolean! # whether the pool is a stable AMM or a volatile AMM
   isCL: Boolean! # whether the pool is a CL pool
   reserve0: BigInt! @config(precision: 76) # reserve of token0 in token units
@@ -22,8 +25,8 @@ type LiquidityPoolAggregator {
   totalFeesUSD: BigInt! @config(precision: 76) # total fees collected in USD
   totalFeesUSDWhitelisted: BigInt! @config(precision: 76) # total fees collected in USD
   numberOfSwaps: BigInt! @config(precision: 76) # total number of swaps in the pool
-  token0Price: BigInt! @config(precision: 76) # price of token0 relative to token1
-  token1Price: BigInt! @config(precision: 76) # price of token1 relative to token0
+  token0Price: BigDecimal! # @config(precision: 76) # price of token0 relative to token1
+  token1Price: BigDecimal! # @config(precision: 76) # price of token1 relative to token0
   totalVotesDeposited: BigInt! @config(precision: 76) # total votes for the pool
   totalVotesDepositedUSD: BigInt! @config(precision: 76) # total votes for the pool in USD
   totalEmissions: BigInt! @config(precision: 76) # total emissions for the pool in reward token units (VELO form Optimism and AERO for Base)
@@ -34,6 +37,78 @@ type LiquidityPoolAggregator {
   token1IsWhitelisted: Boolean! # whether the token1 is whitelisted
   lastUpdatedTimestamp: Timestamp! # timestamp of last update
   lastSnapshotTimestamp: Timestamp! # timestamp of last snapshot
+
+  # all time USD swapped, unfiltered for unreliable USD pools
+  untrackedVolumeUSD: BigDecimal!
+  # all time number of transactions
+  txCount: BigInt!
+  buyCount: BigInt!
+  sellCount: BigInt!
+  # total token 0 across all ticks
+  totalValueLockedToken0: BigDecimal!
+  # total token 1 across all ticks
+  totalValueLockedToken1: BigDecimal!
+  # tvl derived ETH
+  totalValueLockedETH: BigDecimal!
+  # tvl USD
+  totalValueLockedUSD: BigDecimal!
+  # TVL derived in USD untracked
+  totalValueLockedUSDUntracked: BigDecimal!
+  # Fields used to help derived relationship
+  liquidityProviderCount: BigInt! # used to detect new exchanges
+  # hourly snapshots of pool data
+  poolHourData: [CLPool_HourData!]! @derivedFrom(field: "pool")
+  # daily snapshots of pool data
+  poolDayData: [CLPool_DayData!]! @derivedFrom(field: "pool")
+  poolOneMinuteData: [CLPool_OneMinuteData!]! @derivedFrom(field: "pool")
+  poolFiveMinuteData: [CLPool_FiveMinuteData!]! @derivedFrom(field: "pool")
+  poolSixHourData: [CLPool_SixHourData!]! @derivedFrom(field: "pool")
+  # derived fields
+  mints: [CLPool_Mint!]! @derivedFrom(field: "pool")
+  burns: [CLPool_Burn!]! @derivedFrom(field: "pool")
+  swaps: [CLPool_Swap!]! @derivedFrom(field: "pool")
+  collects: [CLPool_Collect!]! @derivedFrom(field: "pool")
+  # ticks: [Tick!]! @derivedFrom(field: "pool")
+
+  # Archive helpers for one minute data
+  lastOneMinuteArchived: BigInt!
+  lastOneMinuteRecorded: BigInt!
+  oneMinuteArray: [Int!]!
+
+  # Archive helpers for five minute data
+  lastFiveMinuteArchived: BigInt!
+  lastFiveMinuteRecorded: BigInt!
+  fiveMinuteArray: [Int!]!
+}
+
+type Factory @entity {
+  # factory address
+  id: ID!
+  # amount of pools created
+  poolCount: BigInt!
+  # amoutn of transactions all time
+  txCount: BigInt!
+  # total volume all time in derived USD
+  totalVolumeUSD: BigDecimal!
+  # total volume all time in derived ETH
+  totalVolumeETH: BigDecimal!
+  # total swap fees all time in USD
+  totalFeesUSD: BigDecimal!
+  # total swap fees all time in USD
+  totalFeesETH: BigDecimal!
+  # all volume even through less reliable USD values
+  untrackedVolumeUSD: BigDecimal!
+  # TVL derived in USD
+  totalValueLockedUSD: BigDecimal!
+  # TVL derived in ETH
+  totalValueLockedETH: BigDecimal!
+  # TVL derived in USD untracked
+  totalValueLockedUSDUntracked: BigDecimal!
+  # TVL derived in ETH untracked
+  totalValueLockedETHUntracked: BigDecimal!
+
+  # current owner of the factory
+  owner: ID!
 }
 
 # Snapshot of the LiquidityPool entity
@@ -85,7 +160,7 @@ type User {
 
 # Entity that tracks the latest state of the token entity
 # By nature this entity saves the latest state of the token, and its state at different times should be attained from the snapshot entities
-type Token {
+type Token @entity {
   id: ID! # token address
   address: String! @index # token address
   symbol: String! # token symbol
@@ -95,6 +170,52 @@ type Token {
   pricePerUSDNew: BigInt! @config(precision: 76) # price of token per USD
   lastUpdatedTimestamp: Timestamp! # timestamp of last update
   isWhitelisted: Boolean! # whether the token is whitelisted
+
+  # Total supply - ensure it's always a valid string
+  totalSupply: BigInt! @config(precision: 76)
+  # Volume metrics
+  volume: BigInt! @config(precision: 76)
+  volumeUSD: BigInt! @config(precision: 76)
+  untrackedVolumeUSD: BigInt! @config(precision: 76)
+  feesUSD: BigInt! @config(precision: 76)
+  # Transaction counts
+  txCount: BigInt! @config(precision: 76)
+  buyCount: BigInt! @config(precision: 76)
+  sellCount: BigInt! @config(precision: 76)
+  # Pool participation
+  poolCount: BigInt! @config(precision: 76)
+  # Liquidity metrics
+  totalValueLocked: BigInt! @config(precision: 76)
+  totalValueLockedUSD: BigInt! @config(precision: 76)
+  totalValueLockedUSDUntracked: BigInt! @config(precision: 76)
+  derivedETH: BigDecimal! # @config(precision: 76)
+  whitelistPools: [String!]! # Changed from Pool reference to String for simplicity
+
+  # Archive helpers for one minute data
+  lastOneMinuteArchived: BigInt!
+  lastOneMinuteRecorded: BigInt!
+  oneMinuteArray: [Int!]!
+
+  # Archive helpers for five minute data
+  lastFiveMinuteArchived: BigInt!
+  lastFiveMinuteRecorded: BigInt!
+  fiveMinuteArray: [Int!]!
+
+  # pools token is in that are white listed for USD pricing
+  # whitelistPools: [LiquidityPoolAggregator!]!
+  # derived fields
+  tokenDayData: [TokenDayData!]! @derivedFrom(field: "token")
+  tokenHourData: [TokenHourData!]! @derivedFrom(field: "token")
+  tokenOneMinuteData: [TokenOneMinuteData!]! @derivedFrom(field: "token")
+  tokenFiveMinuteData: [TokenFiveMinuteData!]! @derivedFrom(field: "token")
+  tokenSixHourData: [TokenSixHourData!]! @derivedFrom(field: "token")
+ }
+
+# stores for USD calculations
+type Bundle @entity {
+  id: ID!
+  # price of ETH in usd
+  ethPriceUSD: BigDecimal! # @config(precision: 76)
 }
 
 # Snapshot of the Token entity
@@ -447,23 +568,29 @@ type PoolFactory_PoolCreated {
 }
 
 type CLPool_Burn {
+  # transaction hash + "#" + index in burn Transaction array
   id: ID!
+  transaction: Transaction!
+  pool: LiquidityPoolAggregator!
+  token0: Token!
+  token1: Token!
   owner: String!
   tickLower: BigInt! @config(precision: 76)
   tickUpper: BigInt! @config(precision: 76)
   amount: BigInt! @config(precision: 76)
   amount0: BigInt! @config(precision: 76)
   amount1: BigInt! @config(precision: 76)
+  amountUSD: BigDecimal! # @config(precision: 76)
   sourceAddress: String! @index
   timestamp: Timestamp! @index
-  transactionHash: String!
-  blockNumber: Int!
+  # transactionHash: String!
   logIndex: Int!
-  chainId: Int!
 }
 
 type CLPool_Collect {
   id: ID!
+  transaction: Transaction!
+  pool: LiquidityPoolAggregator!
   owner: String!
   recipient: String!
   tickLower: BigInt! @config(precision: 76)
@@ -472,10 +599,8 @@ type CLPool_Collect {
   amount1: BigInt! @config(precision: 76)
   sourceAddress: String! @index
   timestamp: Timestamp! @index
-  transactionHash: String!
-  blockNumber: Int!
+  # transactionHash: String!
   logIndex: Int!
-  chainId: Int!
 }
 
 type CLPool_CollectFees {
@@ -488,11 +613,12 @@ type CLPool_CollectFees {
   transactionHash: String!
   blockNumber: Int!
   logIndex: Int!
-  chainId: Int!
 }
 
 type CLPool_Flash {
   id: ID!
+  transaction: Transaction!
+  pool: LiquidityPoolAggregator!
   sender: String!
   recipient: String!
   amount0: BigInt! @config(precision: 76)
@@ -501,10 +627,8 @@ type CLPool_Flash {
   paid1: BigInt! @config(precision: 76)
   sourceAddress: String! @index
   timestamp: Timestamp! @index
-  transactionHash: String!
-  blockNumber: Int!
+  # transactionHash: String!
   logIndex: Int!
-  chainId: Int!
 }
 
 type CLPool_IncreaseObservationCardinalityNext {
@@ -516,7 +640,7 @@ type CLPool_IncreaseObservationCardinalityNext {
   transactionHash: String!
   blockNumber: Int!
   logIndex: Int!
-  chainId: Int!
+  # chainId: Int!
 }
 
 type CLPool_Initialize {
@@ -528,14 +652,17 @@ type CLPool_Initialize {
   transactionHash: String!
   blockNumber: Int!
   logIndex: Int!
-  chainId: Int!
+  # chainId: Int!
 }
 
 type CLPool_Mint {
   id: ID!
+  transaction: Transaction!
+  pool: LiquidityPoolAggregator!
+  token0: Token!
+  token1: Token!
   sender: String!
   owner: String!
-  transactionHash: String!
   tickLower: BigInt! @config(precision: 76)
   tickUpper: BigInt! @config(precision: 76)
   amount: BigInt! @config(precision: 76)
@@ -543,9 +670,7 @@ type CLPool_Mint {
   amount1: BigInt! @config(precision: 76)
   sourceAddress: String! @index
   timestamp: Timestamp! @index
-  blockNumber: Int!
   logIndex: Int!
-  chainId: Int!
 }
 
 type CLPool_SetFeeProtocol {
@@ -559,24 +684,27 @@ type CLPool_SetFeeProtocol {
   transactionHash: String!
   blockNumber: Int!
   logIndex: Int!
-  chainId: Int!
+  # chainId: Int!
 }
 
 type CLPool_Swap {
+  # transaction hash + "#" + index in swaps Transaction array
   id: ID!
   sender: String!
   recipient: String!
+  transaction: Transaction!
+  pool: LiquidityPoolAggregator!
+  token0: Token!
+  token1: Token!
   amount0: BigInt! @config(precision: 76)
   amount1: BigInt! @config(precision: 76)
   sqrtPriceX96: BigInt! @config(precision: 76)
   liquidity: BigInt! @config(precision: 76)
   tick: BigInt! @config(precision: 76)
-  sourceAddress: String! @index
+  sourceAddress: String! @index # Origin of the swap
   timestamp: Timestamp! @index
-  transactionHash: String!
-  blockNumber: Int!
+  # transactionHash: String!
   logIndex: Int!
-  chainId: Int!
 }
 
 
@@ -897,4 +1025,460 @@ type CLGauge_ClaimRewards {
   transactionHash: String!
   logIndex: Int!
   chainId: Int!
+}
+
+type Transaction @entity {
+  # txn hash
+  id: ID!
+  # block txn was included in
+  blockNumber: BigInt!
+  # timestamp txn was confirmed
+  timestamp: BigInt!
+  # gas used during txn execution
+  gasUsed: BigInt!
+  gasPrice: BigInt!
+  # derived values
+  mints: [CLPool_Mint!]! @derivedFrom(field: "transaction")
+  burns: [CLPool_Burn!]! @derivedFrom(field: "transaction")
+  swaps: [CLPool_Swap!]! @derivedFrom(field: "transaction")
+  collects: [CLPool_Collect!]! @derivedFrom(field: "transaction")
+  flashs: [CLPool_Flash!]! @derivedFrom(field: "transaction")
+  # initialize: [CLPool_Initialize]! @derivedFrom(field: "transaction")
+}
+
+type ProtocolDayData @entity {
+  # timestamp rounded to current day by dividing by 86400
+  id: ID!
+  # timestamp rounded to current day by dividing by 86400
+  date: Int!
+  # total daily volume in protocol derived in terms of ETH
+  volumeETH: BigInt! @config(precision: 76)
+  # total daily volume in protocol derived in terms of USD
+  volumeUSD: BigInt! @config(precision: 76)
+  # total daily volume in protocol derived in terms of USD untracked
+  volumeUSDUntracked: BigInt! @config(precision: 76)
+  # fees in USD
+  feesUSD: BigInt! @config(precision: 76)
+  # number of daily transactions
+  txCount: BigInt! @config(precision: 76)
+  # tvl in terms of USD
+  tvlUSD: BigInt! @config(precision: 76)
+}
+
+type CLPool_DayData @entity {
+  # timestamp rounded to current day by dividing by 86400
+  id: ID!
+  # timestamp rounded to current day by dividing by 86400
+  date: Int!
+  # pointer to pool
+  pool: String!
+  # in range liquidity at end of period
+  liquidity: BigInt! @config(precision: 76)
+  # current price tracker at end of period
+  sqrtPrice: BigInt! @config(precision: 76)
+  # price of token0 - derived from sqrtPrice
+  token0Price: BigInt! @config(precision: 76)
+  # price of token1 - derived from sqrtPrice
+  token1Price: BigInt! @config(precision: 76)
+  # current tick at end of period
+  tick: BigInt @config(precision: 76)
+  # tvl derived in USD at end of period
+  tvlUSD: BigInt! @config(precision: 76)
+  # volume in token0
+  volumeToken0: BigInt! @config(precision: 76)
+  # volume in token1
+  volumeToken1: BigInt! @config(precision: 76)
+  # volume in USD
+  volumeUSD: BigInt! @config(precision: 76)
+  # fees in USD
+  feesUSD: BigInt! @config(precision: 76)
+  # number of transactions during period
+  txCount: BigInt! @config(precision: 76)
+  buyCount: BigInt! @config(precision: 76)
+  sellCount: BigInt! @config(precision: 76)
+  # opening price of token0
+  openPrice: BigInt! @config(precision: 76)
+  # high price of token0
+  high: BigInt! @config(precision: 76)
+  # low price of token0
+  low: BigInt! @config(precision: 76)
+  # close price of token0
+  close: BigInt! @config(precision: 76)
+}
+
+# hourly stats tracker for pool
+type CLPool_HourData @entity {
+  # format: <pool address>-<timestamp>
+  id: ID!
+  # unix timestamp for start of hour
+  periodStartUnix: Int!
+  # pointer to pool
+  pool: String!
+  # in range liquidity at end of period
+  liquidity: BigInt! @config(precision: 76)
+  # current price tracker at end of period
+  sqrtPrice: BigInt! @config(precision: 76)
+  # price of token0 - derived from sqrtPrice
+  token0Price: BigInt! @config(precision: 76)
+  # price of token1 - derived from sqrtPrice
+  token1Price: BigInt! @config(precision: 76)
+  # current tick at end of period
+  tick: BigInt @config(precision: 76)
+  # tvl derived in USD at end of period
+  tvlUSD: BigInt! @config(precision: 76)
+  # volume in token0
+  volumeToken0: BigInt! @config(precision: 76)
+  # volume in token1
+  volumeToken1: BigInt! @config(precision: 76)
+  # volume in USD
+  volumeUSD: BigInt! @config(precision: 76)
+  # fees in USD
+  feesUSD: BigInt! @config(precision: 76)
+  # number of transactions during period
+  txCount: BigInt! @config(precision: 76)
+  buyCount: BigInt! @config(precision: 76)
+  sellCount: BigInt! @config(precision: 76)
+  # opening price of token0
+  openPrice: BigInt! @config(precision: 76)
+  # high price of token0
+  high: BigInt! @config(precision: 76)
+  # low price of token0
+  low: BigInt! @config(precision: 76)
+  # close price of token0
+  close: BigInt! @config(precision: 76)
+}
+
+type CLPool_OneMinuteData @entity {
+  # format: <pool address>-<timestamp>
+  id: ID!
+  # unix timestamp for start of minute
+  periodStartUnix: Int!
+  # pointer to pool
+  pool: String!
+  # in range liquidity at end of period
+  liquidity: BigInt! @config(precision: 76)
+  # current price tracker at end of period
+  sqrtPrice: BigInt! @config(precision: 76)
+  # price of token0 - derived from sqrtPrice
+  token0Price: BigInt! @config(precision: 76)
+  # price of token1 - derived from sqrtPrice
+  token1Price: BigInt! @config(precision: 76)
+  # current tick at end of period
+  tick: BigInt @config(precision: 76)
+  # tvl derived in USD at end of period
+  tvlUSD: BigInt! @config(precision: 76)
+  # volume in token0
+  volumeToken0: BigInt! @config(precision: 76)
+  # volume in token1
+  volumeToken1: BigInt! @config(precision: 76)
+  # volume in USD
+  volumeUSD: BigInt! @config(precision: 76)
+  # fees in USD
+  feesUSD: BigInt! @config(precision: 76)
+  # number of transactions during period
+  txCount: BigInt! @config(precision: 76)
+  buyCount: BigInt! @config(precision: 76)
+  sellCount: BigInt! @config(precision: 76)
+  # opening price of token0
+  openPrice: BigInt! @config(precision: 76)
+  # high price of token0
+  high: BigInt! @config(precision: 76)
+  # low price of token0
+  low: BigInt! @config(precision: 76)
+  # close price of token0
+  close: BigInt! @config(precision: 76)
+}
+
+type CLPool_FiveMinuteData @entity {
+  # format: <pool address>-<timestamp>
+  id: ID!
+  # unix timestamp for start of five minutes
+  periodStartUnix: Int!
+  # pointer to pool
+  pool: String!
+  # in range liquidity at end of period
+  liquidity: BigInt! @config(precision: 76)
+  # current price tracker at end of period
+  sqrtPrice: BigInt! @config(precision: 76)
+  # price of token0 - derived from sqrtPrice
+  token0Price: BigInt! @config(precision: 76)
+  # price of token1 - derived from sqrtPrice
+  token1Price: BigInt! @config(precision: 76)
+  # current tick at end of period
+  tick: BigInt @config(precision: 76)
+  # tvl derived in USD at end of period
+  tvlUSD: BigInt! @config(precision: 76)
+  # volume in token0
+  volumeToken0: BigInt! @config(precision: 76)
+  # volume in token1
+  volumeToken1: BigInt! @config(precision: 76)
+  # volume in USD
+  volumeUSD: BigInt! @config(precision: 76)
+  # fees in USD
+  feesUSD: BigInt! @config(precision: 76)
+  # number of transactions during period
+  txCount: BigInt! @config(precision: 76)
+  buyCount: BigInt! @config(precision: 76)
+  sellCount: BigInt! @config(precision: 76)
+  # opening price of token0
+  openPrice: BigInt! @config(precision: 76)
+  # high price of token0
+  high: BigInt! @config(precision: 76)
+  # low price of token0
+  low: BigInt! @config(precision: 76)
+  # close price of token0
+  close: BigInt! @config(precision: 76)
+}
+
+type CLPool_SixHourData @entity {
+  # format: <pool address>-<timestamp>
+  id: ID!
+  # unix timestamp for start of six hours
+  periodStartUnix: Int!
+  # pointer to pool
+  pool: String!
+  # in range liquidity at end of period
+  liquidity: BigInt! @config(precision: 76)
+  # current price tracker at end of period
+  sqrtPrice: BigInt! @config(precision: 76)
+  # price of token0 - derived from sqrtPrice
+  token0Price: BigInt! @config(precision: 76)
+  # price of token1 - derived from sqrtPrice
+  token1Price: BigInt! @config(precision: 76)
+  # current tick at end of period
+  tick: BigInt @config(precision: 76)
+  # tvl derived in USD at end of period
+  tvlUSD: BigInt! @config(precision: 76)
+  # volume in token0
+  volumeToken0: BigInt! @config(precision: 76)
+  # volume in token1
+  volumeToken1: BigInt! @config(precision: 76)
+  # volume in USD
+  volumeUSD: BigInt! @config(precision: 76)
+  # fees in USD
+  feesUSD: BigInt! @config(precision: 76)
+  # number of transactions during period
+  txCount: BigInt! @config(precision: 76)
+  buyCount: BigInt! @config(precision: 76)
+  sellCount: BigInt! @config(precision: 76)
+  # opening price of token0
+  openPrice: BigInt! @config(precision: 76)
+  # high price of token0
+  high: BigInt! @config(precision: 76)
+  # low price of token0
+  low: BigInt! @config(precision: 76)
+  # close price of token0
+  close: BigInt! @config(precision: 76)
+}
+
+type TokenDayData @entity {
+  # token address concatenated with date
+  id: ID!
+  # timestamp rounded to current day by dividing by 86400
+  date: Int!
+  # pointer to token
+  token: String!
+  # volume in token units
+  volume: BigInt! @config(precision: 76)
+  # volume in derived USD
+  volumeUSD: BigInt! @config(precision: 76)
+  # volume in USD even on pools with less reliable USD values
+  untrackedVolumeUSD: BigInt! @config(precision: 76)
+  # liquidity across all pools in token units
+  totalValueLocked: BigInt! @config(precision: 76)
+  # liquidity across all pools in derived USD
+  totalValueLockedUSD: BigInt! @config(precision: 76)
+  # price at end of period in USD
+  priceUSD: BigInt! @config(precision: 76)
+  # fees in USD
+  feesUSD: BigInt! @config(precision: 76)
+  # opening price USD
+  openPrice: BigInt! @config(precision: 76)
+  # high price USD
+  high: BigInt! @config(precision: 76)
+  # low price USD
+  low: BigInt! @config(precision: 76)
+  # close price USD
+  close: BigInt! @config(precision: 76)
+  # number of transactions during period
+  txCount: BigInt! @config(precision: 76)
+  buyCount: BigInt! @config(precision: 76)
+  sellCount: BigInt! @config(precision: 76)
+}
+
+type TokenHourData @entity {
+  # token address concatenated with date
+  id: ID!
+  # unix timestamp for start of hour
+  periodStartUnix: Int!
+  # pointer to token
+  token: String!
+  # volume in token units
+  volume: BigInt! @config(precision: 76)
+  # volume in derived USD
+  volumeUSD: BigInt! @config(precision: 76)
+  # volume in USD even on pools with less reliable USD values
+  untrackedVolumeUSD: BigInt! @config(precision: 76)
+  # liquidity across all pools in token units
+  totalValueLocked: BigInt! @config(precision: 76)
+  # liquidity across all pools in derived USD
+  totalValueLockedUSD: BigInt! @config(precision: 76)
+  # price at end of period in USD
+  priceUSD: BigInt! @config(precision: 76)
+  # fees in USD
+  feesUSD: BigInt! @config(precision: 76)
+  # opening price USD
+  openPrice: BigInt! @config(precision: 76)
+  # high price USD
+  high: BigInt! @config(precision: 76)
+  # low price USD
+  low: BigInt! @config(precision: 76)
+  # close price USD
+  close: BigInt! @config(precision: 76)
+  # number of transactions during period
+  txCount: BigInt! @config(precision: 76)
+  buyCount: BigInt! @config(precision: 76)
+  sellCount: BigInt! @config(precision: 76)
+}
+
+type TokenOneMinuteData @entity {
+  # token address concatenated with date
+  id: ID!
+  # unix timestamp for start of minute
+  periodStartUnix: Int!
+  # pointer to token
+  token: String!
+  # volume in token units
+  volume: BigInt! @config(precision: 76)
+  # volume in derived USD
+  volumeUSD: BigInt! @config(precision: 76)
+  # volume in USD even on pools with less reliable USD values
+  untrackedVolumeUSD: BigInt! @config(precision: 76)
+  # liquidity across all pools in token units
+  totalValueLocked: BigInt! @config(precision: 76)
+  # liquidity across all pools in derived USD
+  totalValueLockedUSD: BigInt! @config(precision: 76)
+  # price at end of period in USD
+  priceUSD: BigInt! @config(precision: 76)
+  # fees in USD
+  feesUSD: BigInt! @config(precision: 76)
+  # opening price USD
+  openPrice: BigInt! @config(precision: 76)
+  # high price USD
+  high: BigInt! @config(precision: 76)
+  # low price USD
+  low: BigInt! @config(precision: 76)
+  # close price USD
+  close: BigInt! @config(precision: 76)
+  # number of transactions during period
+  txCount: BigInt! @config(precision: 76)
+  buyCount: BigInt! @config(precision: 76)
+  sellCount: BigInt! @config(precision: 76)
+}
+
+type TokenFiveMinuteData @entity {
+  # token address concatenated with date
+  id: ID!
+  # unix timestamp for start of five minutes
+  periodStartUnix: Int!
+  # pointer to token
+  token: String!
+  # volume in token units
+  volume: BigInt! @config(precision: 76)
+  # volume in derived USD
+  volumeUSD: BigInt! @config(precision: 76)
+  # volume in USD even on pools with less reliable USD values
+  untrackedVolumeUSD: BigInt! @config(precision: 76)
+  # liquidity across all pools in token units
+  totalValueLocked: BigInt! @config(precision: 76)
+  # liquidity across all pools in derived USD
+  totalValueLockedUSD: BigInt! @config(precision: 76)
+  # price at end of period in USD
+  priceUSD: BigInt! @config(precision: 76)
+  # fees in USD
+  feesUSD: BigInt! @config(precision: 76)
+  # opening price USD
+  openPrice: BigInt! @config(precision: 76)
+  # high price USD
+  high: BigInt! @config(precision: 76)
+  # low price USD
+  low: BigInt! @config(precision: 76)
+  # close price USD
+  close: BigInt! @config(precision: 76)
+  # number of transactions during period
+  txCount: BigInt! @config(precision: 76)
+  buyCount: BigInt! @config(precision: 76)
+  sellCount: BigInt! @config(precision: 76)
+}
+
+type TokenSixHourData @entity {
+  # token address concatenated with date
+  id: ID!
+  # unix timestamp for start of six hours
+  periodStartUnix: Int!
+  # pointer to token
+  token: String!
+  # volume in token units
+  volume: BigInt! @config(precision: 76)
+  # volume in derived USD
+  volumeUSD: BigInt! @config(precision: 76)
+  # volume in USD even on pools with less reliable USD values
+  untrackedVolumeUSD: BigInt! @config(precision: 76)
+  # liquidity across all pools in token units
+  totalValueLocked: BigInt! @config(precision: 76)
+  # liquidity across all pools in derived USD
+  totalValueLockedUSD: BigInt! @config(precision: 76)
+  # price at end of period in USD
+  priceUSD: BigInt! @config(precision: 76)
+  # fees in USD
+  feesUSD: BigInt! @config(precision: 76)
+  # opening price USD
+  openPrice: BigInt! @config(precision: 76)
+  # high price USD
+  high: BigInt! @config(precision: 76)
+  # low price USD
+  low: BigInt! @config(precision: 76)
+  # close price USD
+  close: BigInt! @config(precision: 76)
+  # number of transactions during period
+  txCount: BigInt! @config(precision: 76)
+  buyCount: BigInt! @config(precision: 76)
+  sellCount: BigInt! @config(precision: 76)
+}
+
+type TokenTraderActivity @entity {
+  # format: <token address>-<trader address>
+  id: ID!
+  # trader address
+  trader: String!
+  # token being traded
+  token: String!
+  # total value in USD of tokens bought
+  boughtUSD: BigInt! @config(precision: 76)
+  # total amount of tokens bought
+  boughtTokenAmount: BigInt! @config(precision: 76)
+  # total value in USD of tokens sold
+  soldUSD: BigInt! @config(precision: 76)
+  # total amount of tokens sold
+  soldTokenAmount: BigInt! @config(precision: 76)
+  # profit/loss in USD (soldUSD - boughtUSD)
+  pnlUSD: BigInt! @config(precision: 76)
+  # profit/loss percentage ((soldUSD - boughtUSD) / boughtUSD * 100)
+  pnlPercent: BigInt! @config(precision: 76)
+  # time of first transaction with this token
+  firstTxTimestamp: BigInt! @config(precision: 76)
+  # time of last transaction with this token
+  lastTxTimestamp: BigInt! @config(precision: 76)
+  # holding duration in seconds (lastTxTimestamp - firstTxTimestamp)
+  holdingDurationSeconds: BigInt! @config(precision: 76)
+  # average price at which token was bought (boughtUSD / boughtTokenAmount)
+  avgPriceBought: BigInt! @config(precision: 76)
+  # average price at which token was sold (soldUSD / soldTokenAmount)
+  avgPriceSold: BigInt! @config(precision: 76)
+  # number of buy transactions
+  buyCount: BigInt! @config(precision: 76)
+  # number of sell transactions
+  sellCount: BigInt! @config(precision: 76)
+  # total number of transactions
+  txCount: BigInt! @config(precision: 76)
 }

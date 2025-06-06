@@ -136,22 +136,22 @@ export async function updateDynamicFeePools(
  * @param timestamp - The current timestamp when the snapshot is taken.
  * @param context - The handler context used to store the snapshot.
  */
-export function setLiquidityPoolAggregatorSnapshot(
-  liquidityPoolAggregator: LiquidityPoolAggregator,
-  timestamp: Date,
-  context: handlerContext
-) {
-  const chainId = liquidityPoolAggregator.chainId;
+// export function setLiquidityPoolAggregatorSnapshot(
+//   liquidityPoolAggregator: LiquidityPoolAggregator,
+//   timestamp: Date,
+//   context: handlerContext
+// ) {
+//   const chainId = liquidityPoolAggregator.chainId;
 
-  const snapshot: LiquidityPoolAggregatorSnapshot = {
-    ...liquidityPoolAggregator,
-    pool: liquidityPoolAggregator.id,
-    id: `${chainId}-${liquidityPoolAggregator.id}_${timestamp.getTime()}`,
-    timestamp: liquidityPoolAggregator.lastUpdatedTimestamp,
-  };
+//   const snapshot: LiquidityPoolAggregatorSnapshot = {
+//     ...liquidityPoolAggregator,
+//     pool: liquidityPoolAggregator.id,
+//     id: `${chainId}-${liquidityPoolAggregator.id}_${timestamp.getTime()}`,
+//     timestamp: liquidityPoolAggregator.lastUpdatedTimestamp,
+//   };
 
-  context.LiquidityPoolAggregatorSnapshot.set(snapshot);
-}
+//   context.LiquidityPoolAggregatorSnapshot.set(snapshot);
+// }
 
 /**
  * Updates the state of a LiquidityPoolAggregator with new data and manages snapshots.
@@ -194,13 +194,13 @@ export async function updateLiquidityPoolAggregator(
           gaugeFees0CurrentEpoch: gaugeFees.token0Fees,
           gaugeFees1CurrentEpoch: gaugeFees.token1Fees,
         };
-        setLiquidityPoolAggregatorSnapshot(gaugeFeeUpdated, timestamp, context);
+        // setLiquidityPoolAggregatorSnapshot(gaugeFeeUpdated, timestamp, context);
         updateDynamicFeePools(gaugeFeeUpdated, context, blockNumber);
         return;
       } catch (error) {
         // No error if the pool is not a CL pool
       }
     }
-    setLiquidityPoolAggregatorSnapshot(updated, timestamp, context);
+    // setLiquidityPoolAggregatorSnapshot(updated, timestamp, context);
   }
 }

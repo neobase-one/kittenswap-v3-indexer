@@ -1,19 +1,18 @@
 import {
   CHAIN_CONSTANTS,
   TokenIdByChain,
-  CacheCategory,
   toChecksumAddress,
-  TokenIdByBlock,
+  ZERO_BI,
+  ZERO_BD,
 } from "./Constants";
-import { Token, TokenPriceSnapshot } from "./src/Types.gen";
-import { Cache } from "./cache";
-import { createHash } from "crypto";
+import { Token } from "./src/Types.gen";
 import { getErc20TokenDetails } from "./Erc20";
 import PriceOracleABI from "../abis/VeloPriceOracleABI.json";
 import SpotPriceAggregatorABI from "../abis/SpotPriceAggregator.json";
-import { PriceOracleType, TEN_TO_THE_18_BI } from "./Constants";
+import { PriceOracleType } from "./Constants";
+import { BigDecimal } from "generated";
 export interface TokenPriceData {
-  pricePerUSDNew: bigint;
+  pricePerUSDNew: BigDecimal;
   decimals: bigint;
 }
 
@@ -33,9 +32,36 @@ export async function createTokenEntity(
     name: tokenDetails.symbol, // Using symbol as name, update if you have a separate name field
     chainId: chainId,
     decimals: BigInt(tokenDetails.decimals),
-    pricePerUSDNew: BigInt(0),
+    pricePerUSDNew: ZERO_BI,
     lastUpdatedTimestamp: blockDatetime,
     isWhitelisted: false,
+
+    // Total supply - ensure it's always a valid string
+    totalSupply: BigInt(tokenDetails.totalSupply || 0n),
+    // Volume metrics
+    volume: 0n,
+    volumeUSD: 0n,
+    untrackedVolumeUSD: 0n,
+    feesUSD: 0n,
+    // Transaction counts
+    txCount: 0n,
+    buyCount: 0n,
+    sellCount: 0n,
+    // Pool participation
+    poolCount: 0n,
+    // Liquidity metrics
+    totalValueLocked: 0n,
+    totalValueLockedUSD: 0n,
+    totalValueLockedUSDUntracked: 0n,
+    derivedETH: ZERO_BD,
+    whitelistPools: [],
+    // Archive helpers for minute data
+    lastOneMinuteArchived: 0n,
+    lastFiveMinuteArchived: 0n,
+    oneMinuteArray: [],
+    fiveMinuteArray: [],
+    lastOneMinuteRecorded: 0n,
+    lastFiveMinuteRecorded: 0n,
   };
 
   context.Token.set(tokenEntity);
@@ -79,23 +105,23 @@ export async function refreshTokenPrice(
   const currentPrice = tokenPriceData.pricePerUSDNew;
   const updatedToken: Token = {
     ...token,
-    pricePerUSDNew: currentPrice,
+    pricePerUSDNew: toBigInt(currentPrice),
     decimals: tokenPriceData.decimals,
     lastUpdatedTimestamp: new Date(blockTimestampMs),
   };
   context.Token.set(updatedToken);
 
-  // Create new TokenPrice entity
-  const tokenPrice: TokenPriceSnapshot = {
-    id: TokenIdByBlock(token.address, chainId, blockNumber),
-    address: toChecksumAddress(token.address),
-    pricePerUSDNew: currentPrice,
-    chainId: chainId,
-    isWhitelisted: token.isWhitelisted,
-    lastUpdatedTimestamp: new Date(blockTimestampMs),
-  };
+  // // Create new TokenPrice entity
+  // const tokenPrice: TokenPriceSnapshot = {
+  //   id: TokenIdByBlock(token.address, chainId, blockNumber),
+  //   address: toChecksumAddress(token.address),
+  //   pricePerUSDNew: currentPrice,
+  //   chainId: chainId,
+  //   isWhitelisted: token.isWhitelisted,
+  //   lastUpdatedTimestamp: new Date(blockTimestampMs),
+  // };
 
-  context.TokenPriceSnapshot.set(tokenPrice);
+  // context.TokenPriceSnapshot.set(tokenPrice);
   return updatedToken;
 }
 
@@ -118,66 +144,8 @@ export async function getTokenPriceData(
   blockNumber: number,
   chainId: number
 ): Promise<TokenPriceData> {
-  const tokenDetails = await getErc20TokenDetails(tokenAddress, chainId);
 
-  const WETH_ADDRESS = CHAIN_CONSTANTS[chainId].weth;
-  const USDC_ADDRESS = CHAIN_CONSTANTS[chainId].usdc;
-  const SYSTEM_TOKEN_ADDRESS =
-    CHAIN_CONSTANTS[chainId].rewardToken(blockNumber);
-
-  const USDTokenDetails = await getErc20TokenDetails(USDC_ADDRESS, chainId);
-
-  if (tokenAddress === USDC_ADDRESS) {
-    return {
-      pricePerUSDNew: TEN_TO_THE_18_BI,
-      decimals: BigInt(tokenDetails.decimals),
-    };
-  }
-
-  const connectors = CHAIN_CONSTANTS[chainId].oracle.priceConnectors
-    .filter((connector) => connector.createdBlock <= blockNumber)
-    .map((connector) => connector.address)
-    .filter((connector) => connector !== tokenAddress)
-    .filter((connector) => connector !== WETH_ADDRESS)
-    .filter((connector) => connector !== USDC_ADDRESS)
-    .filter((connector) => connector !== SYSTEM_TOKEN_ADDRESS);
-
-  let pricePerUSDNew: bigint = 0n;
-  const decimals: bigint = BigInt(tokenDetails.decimals);
-
-  const ORACLE_DEPLOYED =
-    CHAIN_CONSTANTS[chainId].oracle.startBlock <= blockNumber;
-
-  if (ORACLE_DEPLOYED) {
-    try {
-      const priceData = await read_prices(
-        tokenAddress,
-        USDC_ADDRESS,
-        SYSTEM_TOKEN_ADDRESS,
-        WETH_ADDRESS,
-        connectors,
-        chainId,
-        blockNumber
-      );
-
-      if (priceData.priceOracleType === PriceOracleType.V3) {
-        // Convert to 18 decimals.
-        pricePerUSDNew =
-          (priceData.pricePerUSDNew * 10n ** BigInt(tokenDetails.decimals)) /
-          10n ** BigInt(USDTokenDetails.decimals);
-      } else {
-        pricePerUSDNew = priceData.pricePerUSDNew;
-      }
-    } catch (error) {
-      console.error(
-        `Error fetching price data for ${tokenAddress} on chain ${chainId} at block ${blockNumber}:`,
-        error
-      );
-      return { pricePerUSDNew: 0n, decimals: BigInt(tokenDetails.decimals) };
-    }
-  }
-
-  return { pricePerUSDNew, decimals };
+  return { pricePerUSDNew: ZERO_BD, decimals: 0n };
 }
 
 /**
@@ -247,4 +215,50 @@ export async function read_prices(
     });
     return { pricePerUSDNew: BigInt(result[0]), priceOracleType };
   }
+}
+
+
+// export async function getPriceOfETHInUSD(chainId: number, context: handlerContext, decimals: bigint): Promise<TokenPriceData> {
+//   const REFERENCE_TOKEN = CHAIN_CONSTANTS[chainId].weth;
+//   const STABLE_POOL = CHAIN_CONSTANTS[chainId].stablePool;
+
+//   const usdcPool = await context.LiquidityPoolAggregator.get(STABLE_POOL!)
+//   if (usdcPool) {
+//     if (usdcPool.token0_id == toChecksumAddress(REFERENCE_TOKEN)) return {
+//       pricePerUSDNew: usdcPool.token1Price,
+//       decimals
+//     }
+//     else return {
+//       pricePerUSDNew: usdcPool.token0Price,
+//       decimals
+//     }
+//   } else {
+//     return {
+//       pricePerUSDNew: ZERO_BI,
+//       decimals
+//     }
+//   }
+// }
+
+// export async function getPriceOfTokenInETH(tokenAddress: string, chainId: number, context: handlerContext, decimals: bigint): Promise<TokenPriceData> {
+
+// }
+
+export function toBigInt(value: BigDecimal, decimals: number = 18): bigint {
+  try {
+    // Parse the string representation of the BigDecimal
+    const valueStr = value.toString();
+    // Remove any decimal points and convert to bigint
+    const valueWithoutDecimal = valueStr.replace('.', '');
+    // Add necessary padding based on decimals
+    return BigInt(valueWithoutDecimal.padEnd(valueWithoutDecimal.length + decimals, '0'));
+  } catch (e) {
+    console.error("Error converting BigDecimal to bigint:", e);
+    return 0n;
+  }
+}
+
+export function toDecimal(value: bigint, decimals: number = 18): BigDecimal {
+  let precision = new BigDecimal("1" + "0".repeat(decimals));
+  return new BigDecimal(value.toString()).div(precision);
 }
